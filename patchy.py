@@ -169,7 +169,7 @@ class UnifiedDiffHighlighter(QSyntaxHighlighter):
         self.f_hdr = QTextCharFormat();  self.f_hdr.setForeground(hdr)
 
     def highlightBlock(self, text: str):
-        if text.startswith('@@') or text.startswith('+++') or text.startswith('---'):
+        if text.startswith('@@') or text.startswith('+++') or text.startswith('---') or text.startswith('***'):
             self.setFormat(0, len(text), self.f_hdr)
             return
         if not text:

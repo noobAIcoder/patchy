@@ -3,6 +3,20 @@
 
 """
 Core diff parsing and application logic for Patchy.
+
+This parser is tolerant and recognizes several header styles:
+
+- Unified headers:
+    --- <old_path>[\t<timestamp>]
+    +++ <new_path>[\t<timestamp>]
+
+- Context-like headers used by some tools with unified hunks:
+    *** <old_path>[\t<timestamp>]
+    --- <new_path>[\t<timestamp>]
+
+It also skips common VCS noise lines (git: diff --git, index, new/deleted file
+mode, similarity index, rename from/to, GIT binary patch; plus "Binary files ...").
+Unified hunks remain in the @@ format; true context hunks are not parsed yet.
 """
 
 from __future__ import annotations
@@ -47,49 +61,107 @@ class ApplyResult:
 # ---------- Parser ----------
 
 class UnifiedDiffParser:
-    RE_FROM = re.compile(r'^---\s+(?P<path>.+)$')
-    RE_TO = re.compile(r'^\+\+\+\s+(?P<path>.+)$')
+    # Guard against confusing context-diff hunk headers like "*** 1,5 ***"
+    RE_OLD_UNIFIED = re.compile(r'^---\s+(?!\d)(?P<path>.+)$')
+    RE_NEW_UNIFIED = re.compile(r'^\+\+\+\s+(?!\d)(?P<path>.+)$')
+
+    # "Context-like" file header where old is "*** ..." and new is "--- ..."
+    RE_OLD_CONTEXTISH = re.compile(r'^\*\*\*\s+(?!\d)(?P<path>.+)$')
+    RE_NEW_CONTEXTISH = re.compile(r'^---\s+(?!\d)(?P<path>.+)$')
+
     RE_HUNK = re.compile(
         r'^@@\s*-\s*(?P<o_start>\d+)(?:,(?P<o_len>\d+))?\s+\+\s*(?P<n_start>\d+)(?:,(?P<n_len>\d+))?\s*@@'
     )
 
+    # Lines to ignore entirely when scanning
+    _SKIP_PREFIXES = (
+        'diff ',              # diff --git a/... b/...
+        'index ',             # index 123..456 100644
+        'new file mode',      # new file mode 100644
+        'deleted file mode',  # deleted file mode 100644
+        'similarity index',   # similarity index 100%
+        'rename from',        # rename from ...
+        'rename to',          # rename to ...
+        'GIT binary patch',   # start of git binary patches
+        'Binary files ',      # Binary files a/... and b/... differ
+    )
+
     @staticmethod
     def _clean_path(p: str) -> str:
-        p = p.strip()
-        if p.startswith("a/") or p.startswith("b/"):
-            return p[2:]
-        return p
+        """
+        Normalize header paths:
+          - drop trailing timestamp after a tab
+          - strip a/ and b/ prefixes
+          - trim whitespace
+        """
+        p = p.rstrip()
+        # Drop timestamp after a tab (diff -u format)
+        if '\t' in p:
+            p = p.split('\t', 1)[0].rstrip()
+
+        # Common /dev/null placeholder should pass through as-is
+        if p == '/dev/null':
+            return p
+
+        # Strip leading a/ or b/ that tools add
+        if p.startswith('a/') or p.startswith('b/'):
+            p = p[2:]
+
+        return p.strip()
 
     def parse(self, text: str) -> List[FilePatch]:
         lines = text.splitlines()
         patches: List[FilePatch] = []
         cur_file: Optional[FilePatch] = None
-        cur_hunk: Optional[Hunk] = None
 
         i = 0
         while i < len(lines):
             line = lines[i]
 
-            if line.startswith('diff '):
+            # Skip generic VCS noise lines
+            if any(line.startswith(pref) for pref in self._SKIP_PREFIXES):
                 i += 1
                 continue
 
-            if line.startswith('---'):
-                m = self.RE_FROM.match(line)
-                if not m:
-                    raise PatchParseError(f'Bad --- line: {line}')
-                old_path = self._clean_path(m.group('path'))
+            # Accept either header style
+            m_ctx_old = self.RE_OLD_CONTEXTISH.match(line)
+            m_old = self.RE_OLD_UNIFIED.match(line)
+
+            if m_ctx_old:
+                # Expect a '--- <new>' next (context-ish header pair)
+                old_path = self._clean_path(m_ctx_old.group('path'))
                 i += 1
-                if i >= len(lines) or not lines[i].startswith('+++'):
-                    raise PatchParseError('Expected +++ after ---')
-                m2 = self.RE_TO.match(lines[i])
-                if not m2:
-                    raise PatchParseError(f'Bad +++ line: {lines[i]}')
-                new_path = self._clean_path(m2.group('path'))
+                if i >= len(lines) or not self.RE_NEW_CONTEXTISH.match(lines[i]):
+                    raise PatchParseError('Expected --- <new> after *** <old>')
+                m_new = self.RE_NEW_CONTEXTISH.match(lines[i])
+                new_path = self._clean_path(m_new.group('path')) if m_new else None
                 cur_file = FilePatch(old_path=old_path, new_path=new_path, hunks=[])
                 patches.append(cur_file)
-                cur_hunk = None
                 i += 1
+                continue
+
+            if m_old:
+                # Expect a '+++ <new>' next (unified header pair)
+                old_path = self._clean_path(m_old.group('path'))
+                # Look ahead a couple of lines to be forgiving
+                j = i + 1
+                found_new = None
+                lookahead_limit = min(len(lines), i + 4)
+                while j < lookahead_limit:
+                    if any(lines[j].startswith(pref) for pref in self._SKIP_PREFIXES):
+                        j += 1
+                        continue
+                    mn = self.RE_NEW_UNIFIED.match(lines[j])
+                    if mn:
+                        found_new = mn
+                        break
+                    break  # do not skip arbitrary lines unless they are known noise
+                if not found_new:
+                    raise PatchParseError('Expected +++ <new> after --- <old>')
+                new_path = self._clean_path(found_new.group('path'))
+                cur_file = FilePatch(old_path=old_path, new_path=new_path, hunks=[])
+                patches.append(cur_file)
+                i = j + 1
                 continue
 
             if line.startswith('@@'):
@@ -105,9 +177,11 @@ class UnifiedDiffParser:
                 cur_hunk = Hunk(ostart, olen, nstart, nlen, [])
                 cur_file.hunks.append(cur_hunk)
                 i += 1
+                # Consume hunk body
                 while i < len(lines):
                     l = lines[i]
-                    if l.startswith('@@') or l.startswith('---') or l.startswith('diff '):
+                    # Next hunk or next file header starts
+                    if l.startswith('@@') or self.RE_OLD_UNIFIED.match(l) or self.RE_OLD_CONTEXTISH.match(l) or l.startswith('diff '):
                         break
                     if l == '':
                         # treat naked empty line as blank context (forgiving)
@@ -124,6 +198,7 @@ class UnifiedDiffParser:
                     i += 1
                 continue
 
+            # Nothing matched, advance
             i += 1
 
         if not patches:
@@ -188,7 +263,7 @@ class DiffApplier:
             # APPLY (mutating)
             cur = anchor_index
             for hl in hunk.lines:
-                if hl.kind == ' ':
+                if hl.kind == '':
                     if hl.text == '':
                         # skip any number of blanks in current buffer
                         while cur < len(out) and out[cur] == '':
