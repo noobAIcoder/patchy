@@ -2,37 +2,34 @@
 # -*- coding: utf-8 -*-
 
 """
-PyQt6 UI for Patchy, using patchy.py core.
+PyQt6 UI for Patchy, using patchy_core.py.
 
-Features:
-- Line-number gutters (QPlainTextEdit subclass)
-- Colored diff highlighting:
-  * Preview: added-line background
-  * Original: removed-line background (based on original indices)
-- Summary bar above preview (+adds / -dels / #hunks)
-- Live preview (debounced) with scroll preservation
-- Theme watcher only repaints when OS dark/light intent changes
+New in this version:
+- 'File diff' tab: per-file diff next to the full unified diff
+- Prev / Next change navigation (Original ↔ Preview)
+- Optional sync scroll between Original and Preview
+- Collapsible unchanged blocks in Preview (folded mode with placeholders)
 """
 
 from __future__ import annotations
 
 import os
 import sys
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict
 
-from PyQt6.QtCore import Qt, QRect, QSize, QTimer, QPoint
+from PyQt6.QtCore import Qt, QRect, QSize, QTimer
 from PyQt6.QtGui import (
-    QColor, QPainter, QPalette, QFont, QTextFormat, QSyntaxHighlighter, QTextCharFormat
+    QColor, QPainter, QPalette, QFont, QSyntaxHighlighter, QTextCharFormat
 )
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QLabel, QSplitter, QMessageBox,
-    QCheckBox, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QFrame, QScrollBar
+    QCheckBox, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QFrame, QTabWidget
 )
 
 from patchy_core import (
     UnifiedDiffParser, DiffApplier, FilePatch, PatchParseError, PatchApplyError,
-    summarize_patch, ApplyResult
+    summarize_patch, ApplyResult, format_file_diff
 )
 
 # ---------------- Logging ----------------
@@ -97,9 +94,7 @@ class CodeEditor(QPlainTextEdit):
         self._line_number_area = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
-        self.cursorPositionChanged.connect(self.highlight_current_line)
         self.update_line_number_area_width(0)
-        self.highlight_current_line()
 
         mono = QFont("Consolas" if sys.platform.startswith("win") else "Monospace")
         mono.setStyleHint(QFont.StyleHint.TypeWriter)
@@ -148,12 +143,6 @@ class CodeEditor(QPlainTextEdit):
             bottom = top + int(self.blockBoundingRect(block).height())
             blockNumber += 1
 
-    def highlight_current_line(self):
-        selection = QTextFormat()
-        # No active current-line highlight (keeps visuals simple & calm)
-        # Could add a faint background here if desired.
-        pass
-
 # ---------------- Highlighters ----------------
 
 def _colors_for_palette(pal: QPalette) -> Tuple[QColor, QColor, QColor, QColor]:
@@ -192,13 +181,13 @@ class UnifiedDiffHighlighter(QSyntaxHighlighter):
             self.setFormat(0, len(text), self.f_del)
 
 class PatchedHighlighter(QSyntaxHighlighter):
-    """Highlights added lines in Preview."""
+    """Highlights added lines in Preview (indices are for the displayed text)."""
     def __init__(self, doc, palette: QPalette):
         super().__init__(doc)
         *_, added_bg = _colors_for_palette(palette)
-        self.added_bg = added_bg
         self._added_lines: set[int] = set()
-        self.f_added = QTextCharFormat(); self.f_added.setBackground(self.added_bg)
+        self.f_added = QTextCharFormat()
+        self.f_added.setBackground(added_bg)
 
     def set_added_lines(self, indices: List[int]):
         self._added_lines = set(indices)
@@ -213,7 +202,7 @@ class RemovedHighlighter(QSyntaxHighlighter):
     """Highlights deleted lines (by original indices) in the Original pane."""
     def __init__(self, doc, palette: QPalette):
         super().__init__(doc)
-        g, red, _, _ = _colors_for_palette(palette)
+        _, red, _, _ = _colors_for_palette(palette)
         self._removed_lines: set[int] = set()
         self.f_removed = QTextCharFormat()
         bg = QColor(red); bg.setAlpha(60)
@@ -235,13 +224,21 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.app = app
         self.setWindowTitle("Patchy — patch applier")
-        self.resize(1400, 900)
+        self.resize(1500, 950)
 
         # state
         self.original_path: Optional[str] = None
         self.root_folder: Optional[str] = None
         self.file_patches: List[FilePatch] = []
         self.applier = DiffApplier()
+
+        # preview state helpers
+        self.fold_context = 3
+        self.fold_enabled = False
+        self.sync_scroll_enabled = False
+        self._display_line_map: List[Optional[int]] = []  # displayed line -> real preview line (None for placeholders)
+        self._added_blocks: List[int] = []
+        self._removed_blocks: List[int] = []
 
         # Actions / controls
         self.open_file_btn = QPushButton("Open File")
@@ -257,9 +254,16 @@ class MainWindow(QMainWindow):
         # Path indicator
         self.path_line = QLineEdit(); self.path_line.setReadOnly(True); self.path_line.setPlaceholderText("No context")
 
-        # Summary label for preview
+        # Summary + controls row for preview
         self.summary_label = QLabel("(no diff)")
-        self.summary_label.setFrameStyle(QFrame.Shape.NoFrame)
+        self.fold_checkbox = QCheckBox("Fold unchanged")
+        self.fold_checkbox.stateChanged.connect(self._on_fold_toggled)
+        self.sync_checkbox = QCheckBox("Sync scroll")
+        self.sync_checkbox.stateChanged.connect(self._on_sync_toggled)
+        self.prev_btn = QPushButton("Prev change")
+        self.next_btn = QPushButton("Next change")
+        self.prev_btn.clicked.connect(self.on_prev_change)
+        self.next_btn.clicked.connect(self.on_next_change)
 
         # Layout top
         row1 = QHBoxLayout()
@@ -276,36 +280,52 @@ class MainWindow(QMainWindow):
         self.files_list = QListWidget()
         self.files_list.setSelectionMode(self.files_list.SelectionMode.SingleSelection)
 
-        # Editors with line numbers
+        # Editors
         self.original_edit = CodeEditor()
         self.original_edit.setPlaceholderText("Original content here")
 
+        # Right: tabs for unified diff + file diff
         self.diff_edit = CodeEditor()
         self.diff_edit.setPlaceholderText("Paste unified diff here or use Open Diff")
+        self.file_diff_edit = CodeEditor()
+        self.file_diff_edit.setPlaceholderText("Per-file diff will appear here")
+        self.file_diff_edit.setReadOnly(True)
 
+        # Preview
         self.patched_edit = CodeEditor()
         self.patched_edit.setPlaceholderText("Patched preview will appear here")
         self.patched_edit.setReadOnly(True)
 
         # Highlighters
         self.diff_highlighter = UnifiedDiffHighlighter(self.diff_edit.document(), self.app.palette())
+        self.file_diff_highlighter = UnifiedDiffHighlighter(self.file_diff_edit.document(), self.app.palette())
         self.patch_highlighter = PatchedHighlighter(self.patched_edit.document(), self.app.palette())
         self.removed_highlighter = RemovedHighlighter(self.original_edit.document(), self.app.palette())
 
-        # Right panel (diff + preview)
+        # Right panel (diff tabs + preview)
         right_split = QSplitter(Qt.Orientation.Vertical)
         rtop = QWidget(); rtop_v = QVBoxLayout(rtop)
-        rtop_v.addWidget(QLabel("Unified diff"))
-        rtop_v.addWidget(self.diff_edit)
+        rtop_tabs = QTabWidget()
+        rtop_tabs.addTab(self.diff_edit, "Unified diff")
+        rtop_tabs.addTab(self.file_diff_edit, "File diff")
+        rtop_v.addWidget(rtop_tabs)
+
         rbot = QWidget(); rbot_v = QVBoxLayout(rbot)
         header = QHBoxLayout()
         header.addWidget(QLabel("Preview"))
         header.addStretch(1)
+        header.addWidget(self.prev_btn)
+        header.addWidget(self.next_btn)
+        header.addSpacing(12)
+        header.addWidget(self.sync_checkbox)
+        header.addWidget(self.fold_checkbox)
+        header.addSpacing(12)
         header.addWidget(self.summary_label)
         rbot_v.addLayout(header)
         rbot_v.addWidget(self.patched_edit)
+
         right_split.addWidget(rtop); right_split.addWidget(rbot)
-        right_split.setSizes([450, 450])
+        right_split.setSizes([450, 500])
 
         # Middle panel (original)
         middle_panel = QWidget(); mpv = QVBoxLayout(middle_panel)
@@ -324,7 +344,7 @@ class MainWindow(QMainWindow):
         main_split.addWidget(left_split)
         main_split.addWidget(middle_panel)
         main_split.addWidget(right_split)
-        main_split.setSizes([250, 550, 600])
+        main_split.setSizes([260, 560, 680])
 
         # Central
         root = QWidget(); rv = QVBoxLayout(root)
@@ -353,10 +373,17 @@ class MainWindow(QMainWindow):
         self.original_edit.textChanged.connect(self._maybe_preview_after_edit)
         self.diff_edit.textChanged.connect(self._maybe_reparse_and_preview)
 
-        self.update_buttons()
+        # Theme watcher
         self._last_dark = palette_is_dark(self.app.palette())
         self.theme_timer = QTimer(self); self.theme_timer.setInterval(30000)
         self.theme_timer.timeout.connect(self._check_theme_change); self.theme_timer.start()
+
+        # Sync scroll signals (enable/disable via checkbox)
+        self.original_edit.verticalScrollBar().valueChanged.connect(self._on_orig_scroll)
+        self.patched_edit.verticalScrollBar().valueChanged.connect(self._on_patch_scroll)
+        self._guard_sync = False
+
+        self.update_buttons()
 
     # ---- UI helpers ----
 
@@ -368,6 +395,8 @@ class MainWindow(QMainWindow):
         self.save_inplace_btn.setEnabled(has_selection and (in_folder or self.original_path is not None))
         self.save_as_btn.setEnabled(has_selection and self.patched_edit.toPlainText() != "")
         self.preview_btn.setEnabled(has_selection)
+        self.prev_btn.setEnabled(True)
+        self.next_btn.setEnabled(True)
 
     def set_context_label(self):
         if self.root_folder:
@@ -407,11 +436,13 @@ class MainWindow(QMainWindow):
             if self.root_folder:
                 path = os.path.join(self.root_folder, rel)
                 if os.path.isfile(path):
-                    with open(path, 'r', encoding='utf-8') as f: txt = f.read()
+                    with open(path, 'r', encoding='utf-8') as f:
+                        txt = f.read()
                     self.original_path = path
                     return txt
             if rel and os.path.isfile(rel):
-                with open(rel, 'r', encoding='utf-8') as f: txt = f.read()
+                with open(rel, 'r', encoding='utf-8') as f:
+                    txt = f.read()
                 self.original_path = os.path.abspath(rel)
                 return txt
         return self.original_edit.toPlainText()
@@ -422,12 +453,14 @@ class MainWindow(QMainWindow):
         return {
             'orig': self.original_edit.verticalScrollBar().value(),
             'diff': self.diff_edit.verticalScrollBar().value(),
+            'filediff': self.file_diff_edit.verticalScrollBar().value(),
             'patch': self.patched_edit.verticalScrollBar().value(),
         }
 
     def _restore_scroll_positions(self, st: Dict[str, int]):
         self.original_edit.verticalScrollBar().setValue(st['orig'])
         self.diff_edit.verticalScrollBar().setValue(st['diff'])
+        self.file_diff_edit.verticalScrollBar().setValue(st['filediff'])
         self.patched_edit.verticalScrollBar().setValue(st['patch'])
 
     def _check_theme_change(self):
@@ -448,6 +481,7 @@ class MainWindow(QMainWindow):
 
         self._last_dark = target_dark
         self.diff_highlighter.rehighlight()
+        self.file_diff_highlighter.rehighlight()
         self.patch_highlighter.rehighlight()
         self.removed_highlighter.rehighlight()
         self._restore_scroll_positions(scroll)
@@ -468,6 +502,7 @@ class MainWindow(QMainWindow):
             self.file_patches = []
             self.populate_files_list()
             self.patched_edit.clear()
+            self.file_diff_edit.clear()
             self.patch_highlighter.set_added_lines([])
             self.removed_highlighter.set_removed_lines([])
             self.summary_label.setText("(no diff)")
@@ -511,6 +546,7 @@ class MainWindow(QMainWindow):
         self.original_path = None
         self.original_edit.clear()
         self.patched_edit.clear()
+        self.file_diff_edit.clear()
         self.patch_highlighter.set_added_lines([])
         self.removed_highlighter.set_removed_lines([])
         self.set_context_label()
@@ -549,6 +585,7 @@ class MainWindow(QMainWindow):
         if txt:
             self.original_edit.setPlainText(txt)
         self.patched_edit.clear()
+        self.file_diff_edit.clear()
         self.patch_highlighter.set_added_lines([])
         self.removed_highlighter.set_removed_lines([])
         self.update_buttons()
@@ -674,17 +711,32 @@ class MainWindow(QMainWindow):
             if txt:
                 self.original_edit.setPlainText(txt)
 
+        # update file-diff tab
+        try:
+            self.file_diff_edit.setPlainText(format_file_diff(fp))
+        except Exception:
+            self.file_diff_edit.clear()
+
         # compute & render
         try:
             res: ApplyResult = self.applier.apply(self.original_edit.toPlainText(), fp)
 
+            # Prepare either full or folded preview content + line map
+            if self.fold_enabled:
+                display_text, line_map = self._render_folded_preview(res)
+            else:
+                display_text = res.text
+                # identity map for each displayed line -> same index
+                line_map = list(range(len(res.text.splitlines())))
+
             # Save preview scroll, update text, restore scroll
             patch_scroll = self.patched_edit.verticalScrollBar().value()
-            self.patched_edit.setPlainText(res.text)
+            self.patched_edit.setPlainText(display_text)
             self.patched_edit.verticalScrollBar().setValue(patch_scroll)
 
-            # Highlight adds in Preview
-            self.patch_highlighter.set_added_lines(res.added_lines)
+            # Highlight adds in Preview (translate res.added_lines into displayed indices)
+            display_added = self._map_added_to_display(res.added_lines, line_map)
+            self.patch_highlighter.set_added_lines(display_added)
 
             # Highlight deletions in Original by original indices
             self.removed_highlighter.set_removed_lines(res.removed_lines_original)
@@ -693,10 +745,153 @@ class MainWindow(QMainWindow):
             adds, dels, hunks = summarize_patch(fp)
             self.summary_label.setText(f"<b>+{adds}</b> / <b>-{dels}</b> across {hunks} hunks")
 
+            # Cache for navigation + sync scroll
+            self._display_line_map = line_map
+            self._added_blocks = _contiguous_blocks(display_added)
+            self._removed_blocks = _contiguous_blocks(res.removed_lines_original)
+
             log("Live preview refreshed")
             self.update_buttons()
         except PatchApplyError as e:
             log(f"Live preview apply error: {e}")
+
+    # ---- Folding / mapping helpers ----
+
+    def _render_folded_preview(self, res: ApplyResult) -> Tuple[str, List[Optional[int]]]:
+        """
+        Build folded preview text showing +/- fold_context lines around changes,
+        replacing gaps with a placeholder line.
+        Returns (display_text, display_line_map).
+        """
+        lines = res.text.splitlines()
+        L = len(lines)
+        # Build set of interesting lines to keep: added lines expanded by context
+        keep = set()
+        for idx in res.added_lines:
+            for k in range(max(0, idx - self.fold_context), min(L, idx + self.fold_context + 1)):
+                keep.add(k)
+        # Always keep file top/bottom small context
+        for k in range(min(L, self.fold_context)):
+            keep.add(k)
+        for k in range(max(0, L - self.fold_context), L):
+            keep.add(k)
+
+        # Sort and coalesce into ranges
+        keep_sorted = sorted(keep)
+        ranges: List[Tuple[int, int]] = []
+        if keep_sorted:
+            s = e = keep_sorted[0]
+            for v in keep_sorted[1:]:
+                if v == e + 1:
+                    e = v
+                else:
+                    ranges.append((s, e))
+                    s = e = v
+            ranges.append((s, e))
+
+        display_lines: List[str] = []
+        line_map: List[Optional[int]] = []
+        cur = 0
+        for (s, e) in ranges:
+            if s > cur:
+                skipped = s - cur
+                display_lines.append(f"... {skipped} unchanged lines ...")
+                line_map.append(None)  # placeholder
+            for idx in range(s, e + 1):
+                display_lines.append(lines[idx])
+                line_map.append(idx)
+            cur = e + 1
+        if cur < L:
+            skipped = L - cur
+            display_lines.append(f"... {skipped} unchanged lines ...")
+            line_map.append(None)
+
+        return "\n".join(display_lines), line_map
+
+    def _map_added_to_display(self, added_real: List[int], line_map: List[Optional[int]]) -> List[int]:
+        real_to_display: Dict[int, int] = {}
+        for i, r in enumerate(line_map):
+            if r is not None and r not in real_to_display:
+                real_to_display[r] = i
+        out: List[int] = []
+        for r in added_real:
+            d = real_to_display.get(r)
+            if d is not None:
+                out.append(d)
+        return out
+
+    # ---- Navigation ----
+
+    def on_prev_change(self):
+        self._jump_change(prev=True)
+
+    def on_next_change(self):
+        self._jump_change(prev=False)
+
+    def _jump_change(self, prev: bool):
+        # decide which list to use based on focus: if preview has focus -> added blocks, else original -> removed
+        use_preview = self.patched_edit.hasFocus() or not self.original_edit.hasFocus()
+        blocks = self._added_blocks if use_preview else self._removed_blocks
+        if not blocks:
+            return
+        editor = self.patched_edit if use_preview else self.original_edit
+        current_line = editor.textCursor().blockNumber()
+        # find nearest block start before/after current
+        target = None
+        if prev:
+            for b in reversed(blocks):
+                if b < current_line:
+                    target = b
+                    break
+            if target is None:
+                target = blocks[-1]
+        else:
+            for b in blocks:
+                if b > current_line:
+                    target = b
+                    break
+            if target is None:
+                target = blocks[0]
+
+        cursor = editor.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        cursor.movePosition(cursor.MoveOperation.Down, cursor.MoveMode.MoveAnchor, target)
+        editor.setTextCursor(cursor)
+
+    # ---- Sync scroll ----
+
+    def _on_sync_toggled(self, state: int):
+        self.sync_scroll_enabled = state == Qt.CheckState.Checked.value
+
+    def _on_fold_toggled(self, state: int):
+        self.fold_enabled = state == Qt.CheckState.Checked.value
+        self._refresh_preview()
+
+    def _on_orig_scroll(self, value: int):
+        if not self.sync_scroll_enabled or self._guard_sync:
+            return
+        try:
+            self._guard_sync = True
+            self._sync_scroll(self.original_edit, self.patched_edit)
+        finally:
+            self._guard_sync = False
+
+    def _on_patch_scroll(self, value: int):
+        if not self.sync_scroll_enabled or self._guard_sync:
+            return
+        try:
+            self._guard_sync = True
+            self._sync_scroll(self.patched_edit, self.original_edit)
+        finally:
+            self._guard_sync = False
+
+    def _sync_scroll(self, src: QPlainTextEdit, dst: QPlainTextEdit):
+        sb_src = src.verticalScrollBar()
+        sb_dst = dst.verticalScrollBar()
+        # proportional sync - simple and robust; works fine even in folded mode
+        if sb_src.maximum() > 0:
+            ratio = sb_src.value() / sb_src.maximum()
+            sb_dst.setValue(int(ratio * sb_dst.maximum()))
 
     # ---- Utils ----
 
@@ -712,6 +907,18 @@ class MainWindow(QMainWindow):
             return f"{root}.patched{ext if ext else '.txt'}"
         return os.path.join(os.getcwd(), "patched_output.txt")
 
+# ---- Helpers ----
+
+def _contiguous_blocks(indices: List[int]) -> List[int]:
+    """Return the start line of each contiguous block from a sorted list of indices."""
+    if not indices:
+        return []
+    sorted_idx = sorted(indices)
+    blocks = [sorted_idx[0]]
+    for i in range(1, len(sorted_idx)):
+        if sorted_idx[i] != sorted_idx[i-1] + 1:
+            blocks.append(sorted_idx[i])
+    return blocks
 
 # ---------------- Entry ----------------
 

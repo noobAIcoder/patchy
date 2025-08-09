@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Iterable
-
+from typing import List, Optional, Tuple
 
 # ---------- Diff model ----------
 
@@ -42,9 +41,8 @@ class PatchApplyError(Exception):
 @dataclass
 class ApplyResult:
     text: str
-    added_lines: List[int]          # indices in the resulting text (0-based)
-    removed_lines_original: List[int]  # indices in the ORIGINAL text (0-based)
-
+    added_lines: List[int]               # indices in the resulting text (0-based)
+    removed_lines_original: List[int]    # indices in the ORIGINAL text (0-based)
 
 # ---------- Parser ----------
 
@@ -132,7 +130,6 @@ class UnifiedDiffParser:
             raise PatchParseError('No file patches found')
         return patches
 
-
 # ---------- Applier with tolerant anchoring ----------
 
 class DiffApplier:
@@ -216,8 +213,11 @@ class DiffApplier:
                     cur += 1
                     line_bias += 1
 
-        return ApplyResult(text='\n'.join(out), added_lines=added_lines,
-                           removed_lines_original=sorted(removed_original_indices))
+        return ApplyResult(
+            text='\n'.join(out),
+            added_lines=added_lines,
+            removed_lines_original=sorted(removed_original_indices)
+        )
 
     # ---- anchoring helpers ----
 
@@ -284,7 +284,6 @@ class DiffApplier:
                 cur += 1
         return True
 
-
 # ---------- Utilities ----------
 
 def summarize_patch(fp: FilePatch) -> Tuple[int, int, int]:
@@ -299,3 +298,17 @@ def summarize_patch(fp: FilePatch) -> Tuple[int, int, int]:
             elif ln.kind == '-':
                 dels += 1
     return adds, dels, len(fp.hunks)
+
+def format_file_diff(fp: FilePatch) -> str:
+    """
+    Stringify a single-file unified diff (headers + hunks).
+    Useful for the 'File diff' pane in the UI.
+    """
+    oldp = fp.old_path or "/dev/null"
+    newp = fp.new_path or "/dev/null"
+    out: List[str] = [f"--- a/{oldp}", f"+++ b/{newp}"]
+    for h in fp.hunks:
+        out.append(f"@@ -{h.old_start},{h.old_len} +{h.new_start},{h.new_len} @@")
+        for ln in h.lines:
+            out.append(f"{ln.kind}{ln.text}")
+    return "\n".join(out)
