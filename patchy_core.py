@@ -69,8 +69,15 @@ class UnifiedDiffParser:
     RE_OLD_CONTEXTISH = re.compile(r'^\*\*\*\s+(?!\d)(?P<path>.+)$')
     RE_NEW_CONTEXTISH = re.compile(r'^---\s+(?!\d)(?P<path>.+)$')
 
+    # Accept hunk headers in these forms:
+    #   @@ -A,B +C,D @@ ...
+    #   @@ -A +C @@ ...
+    #   @@                       - bare marker, no ranges
+    # Trailing labels after the closing @@ are tolerated.
     RE_HUNK = re.compile(
-        r'^@@\s*-\s*(?P<o_start>\d+)(?:,(?P<o_len>\d+))?\s+\+\s*(?P<n_start>\d+)(?:,(?P<n_len>\d+))?\s*@@'
+        r'^@@(?:\s*-\s*(?P<o_start>\d+)(?:,(?P<o_len>\d+))?)?'
+        r'(?:\s+\+\s*(?P<n_start>\d+)(?:,(?P<n_len>\d+))?)?'
+        r'(?:\s*@@.*)?$'
     )
 
     # Lines to ignore entirely when scanning
@@ -170,9 +177,10 @@ class UnifiedDiffParser:
                 m = self.RE_HUNK.match(line)
                 if not m:
                     raise PatchParseError(f'Bad hunk header: {line}')
-                ostart = int(m.group('o_start'))
+                # Defaults for short or bare headers
+                ostart = int(m.group('o_start') or '1')
                 olen = int(m.group('o_len') or '0')
-                nstart = int(m.group('n_start'))
+                nstart = int(m.group('n_start') or '1')
                 nlen = int(m.group('n_len') or '0')
                 cur_hunk = Hunk(ostart, olen, nstart, nlen, [])
                 cur_file.hunks.append(cur_hunk)
