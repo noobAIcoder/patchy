@@ -1,0 +1,47 @@
+{
+  "$template_reference": "ui_blocks_template.json",
+  "block_name": "string",
+  "layout": {
+    "type": "string",
+    "comment_layout_type_options": ["grid", "list", "card", "form"],
+    "structure": {}
+  },
+  "actions": [
+    {
+      "name": "string",
+      "module_dependency": "string",
+      "function_call": "string",
+      "type": "string",
+      "comment_action_type_options": ["click", "submit", "change", "load"],
+      "permissions_required": ["public"],
+      "comment_permissions_required_options": ["public", "authenticated", "admin"],
+      "validation_method": "CHECK|trigger|application",
+      "audit_required": true
+    }
+  ],
+  "fields": [
+    {
+      "name": "string",
+      "type": "string",
+      "comment_field_type_options": ["string", "number", "enum", "bool", "jsonb"],
+      "enum_values": [],
+      "validation": [],
+      "comment_validation_options": ["required", "unique", "email", "custom"],
+      "validation_method": "CHECK|trigger|application",
+      "pattern_id": "string"
+    }
+  ],
+  "exceptions": [
+    {
+      "rule_id": "conventions_rule_id",
+      "reason": "Why this block deviates from the rule",
+      "risks": "Risks of this deviation",
+      "approved_by": "approver_name",
+      "date": "YYYY-MM-DD"
+    }
+  ],
+  "state_hooks": {
+    "get_ui_state": { "description": "Return current pane state as a JSON-serializable dict" },
+    "set_ui_state": { "description": "Restore pane state from a JSON-serializable dict" }
+  }
+}

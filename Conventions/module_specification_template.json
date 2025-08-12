@@ -1,0 +1,86 @@
+{
+  "$template_reference": "module_specification_template.json",
+  "id": "module_id",
+  "name": "Module Name",
+  "summary": "1-2 sentence functional summary.",
+  "registry": "./modules/module_id.registry.json",
+  "data_model": "./modules/module_id.data.json",
+  "logic": "./modules/module_id.logic.md",
+  "pseudocode": "./modules/module_id.pseudocode.md",
+  "tests_description": "./tests/module_id.tests-description.md",
+  "tests_pseudocode": "./tests/module_id.tests-pseudocode.md",
+  "ui_block": "./modules/module_id.ui_block.json",
+  "interfaces": [
+    {
+      "path": "string",
+      "comment_a1b2c3": "API endpoint (e.g., /api/capture, /api/items/:id).",
+      "method": "string",
+      "comment_b2c3d4": "HTTP method (GET, POST, PUT, DELETE).",
+      "request_schema": "object",
+      "comment_c3d4e5": "Request body/query params schema.",
+      "response_schema": "object",
+      "comment_d4e5f6": "Response body schema.",
+      "errors": [
+        {
+          "code": "string or integer",
+          "message": "string",
+          "comment_e5f6g7": "Known/expected error."
+        }
+      ]
+    }
+  ],
+  "database_tables": [
+    "string"
+  ],
+  "comment_0d1e2f": "List of database tables owned or updated by this module.",
+  "events": [
+    {
+      "event": "string",
+      "comment_f6g7h8": "Event name (emitted, handled, or subscribed to).",
+      "payload_schema": "object"
+    }
+  ],
+  "dependencies": {
+    "internal": [
+      "string"
+    ],
+    "external": [
+      "string"
+    ]
+  },
+  "comment_1e2f3a": "Module IDs or external libraries/services required.",
+  "exceptions": [
+    {
+      "rule_id": "<string>",
+      "comment_2f3a4b": "ID of rule this exception overrides.",
+      "reason": "<string>",
+      "comment_3a4b5c": "Rationale for exception.",
+      "risks": "<string>",
+      "comment_4b5c6d": "Potential risks of exception.",
+      "approved_by": "<string>",
+      "comment_5c6d7e": "Name of approving party.",
+      "date": "<string>",
+      "comment_6d7e8f": "Date of approval (YYYY-MM-DD)."
+    }
+  ],
+  "permissions": [
+    {
+      "role": "string",
+      "comment_i9j0k1": "User role or capability name.",
+      "access": "string",
+      "comment_j0k1l2": "Allowed actions (e.g., read, write, admin)."
+    }
+  ],
+  "ui_pages": [
+    "string"
+  ],
+  "comment_2f3a4b": "Screens/pages/routes this module powers.",
+  "edge_cases": [
+    "string"
+  ],
+  "comment_3a4b5c": "(Optional) Description of tricky or non-obvious edge cases this module must handle.",
+  "conventions": [
+    "string"
+  ],
+  "comment_4b5c6d": "Policy or conventions IDs/files this module follows (e.g., CONVENTIONS.json#db.constraint.timestamps)."
+}

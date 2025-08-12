@@ -1,0 +1,59 @@
+{
+  "$template_reference": "codebase_registry_template.json",
+  "version": "1.0.0",
+  "module_creation_order": ["<module_id_1>", "<module_id_2>", "..."],
+  "modules": {
+    "<module_id>": {
+      "name": "Module Name",
+      "functionality": "One-line module description",
+      "registry": "./modules/<module_id>.registry.json",
+      "data_model": "./modules/<module_id>.data.json",
+      "logic": "./modules/<module_id>.logic.md",
+      "pseudocode": "./modules/<module_id>.pseudocode.md",
+      "tests_description": "./tests/<module_id>.tests-description.md",
+      "tests_pseudocode": "./tests/<module_id>.tests-pseudocode.md",
+      "ui_block": "./modules/<module_id>.ui_block.json",
+      "interfaces": ["fn_1", "fn_2"],
+      "database_tables": ["table1", "table2"],
+      "ui_pages": ["page1", "page2"],
+      "dependencies": {
+        "internal": ["other_module_id"],
+        "external": ["external_service_name"]
+      },
+      "events": {
+        "publishes": {
+          "<module_id>.event_name": {
+            "payload": { "field": "type" },
+            "when": "condition or trigger for this event"
+          }
+        },
+        "subscribes": {
+          "other_module.event": {
+            "handler": "function_name"
+          }
+        }
+      },
+      "permissions": {
+        "fn_1": "public",
+        "fn_2": "admin"
+      },
+      "exceptions": [
+        {
+          "rule_id": "conventions_rule_id",
+          "reason": "Justification for exception",
+          "risks": "Potential risks",
+          "approved_by": "approver_name",
+          "date": "YYYY-MM-DD"
+        }
+      ]
+    }
+  },
+  "shared": {
+    "comment": "Cross-module data model registry",
+    "data_models": ["SharedModelA", "SharedModelB"],
+    "owned_by": {
+      "SharedModelA": "module_id_1",
+      "SharedModelB": "module_id_2"
+    }
+  }
+}

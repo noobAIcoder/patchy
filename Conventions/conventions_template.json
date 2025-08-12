@@ -1,0 +1,50 @@
+{
+  "$template_reference": "conventions_template.json",
+  "validation_patterns_file": "<string>",
+  "comment_0a1b2c": "Filename for global validation patterns (if applicable).",
+  "conventions_version": "<string>",
+  "comment_1a2b3c": "Schema version for the conventions specification.",
+  "sections": [
+    {
+      "id": "<string>",
+      "comment_2b3c4d": "Unique identifier for the section.",
+      "title": "<string>",
+      "comment_3c4d5e": "Human-readable section title.",
+      "rules": [
+        {
+          "id": "<string>",
+          "comment_4d5e6f": "Unique rule identifier.",
+          "statement": "<string>",
+          "comment_5e6f7a": "Atomic, concise rule statement using RFC 2119 language.",
+          "applies_to": ["<string>"],
+          "comment_6f7a8b": "Array of domains the rule applies to (e.g., db, ui, code, test, ops).",
+          "requirement_level": "<string>",
+          "comment_7a8b9c": "RFC 2119 requirement level: MUST, SHOULD, MAY, etc.",
+          "references": ["<string>"],
+          "comment_8b9c0d": "Optional list of references to docs or templates.",
+          "notes": "<string>",
+          "comment_9c0d1e": "Optional clarifications, rationale, or exceptions guidance.",
+          "enforced_by": ["<string>"],
+          "comment_0d1e2f": "Optional enforcement mechanisms (e.g., ci, review, db-policy)."
+        }
+      ],
+      "comment_1e2f3a": "End of rules array for this section."
+    }
+  ],
+  "comment_2e3f4a": "End of sections array.",
+  "exceptions": [
+    {
+      "rule_id": "<string>",
+      "comment_2f3a4b": "ID of rule this exception overrides.",
+      "reason": "<string>",
+      "comment_3a4b5c": "Rationale for exception.",
+      "risks": "<string>",
+      "comment_4b5c6d": "Potential risks of exception.",
+      "approved_by": "<string>",
+      "comment_5c6d7e": "Name of approving party.",
+      "date": "<string>",
+      "comment_6d7e8f": "Date of approval (YYYY-MM-DD)."
+    }
+  ],
+  "comment_7e8f9a": "End of conventions specification."
+}

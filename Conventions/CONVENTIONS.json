@@ -1,0 +1,517 @@
+{
+  "validation_patterns_file": "global_validation_patterns.yaml.md",
+  "conventions_version": "2025-08-01",
+  "comment_1a2b3c": "Schema version for the conventions specification.",
+  "sections": [
+    {
+      "id": "db.audit",
+      "comment_2b3c4d": "Audit trail isolation and immutability.",
+      "title": "Audit Trail & Immutability",
+      "comment_3c4d5e": "Protect and isolate all audit data.",
+      "rules": [
+        {
+          "id": "db.audit.schema",
+          "comment_4d5e6f": "Audit schema location.",
+          "statement": "All audit tables MUST reside in a dedicated schema named 'audit'.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "Ensures separation of audit data.",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["db-policy", "review"]
+        },
+        {
+          "id": "db.audit.immutability",
+          "comment_4d5e6f": "Prevent modifications after insert.",
+          "statement": "Audit tables MUST be append-only and protected against UPDATE or DELETE.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Implement via REVOKE, RLS, or equivalent.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["db-policy", "ci"]
+        },
+        {
+          "id": "db.audit.application",
+          "comment_4d5e6f": "Application-level enforcement.",
+          "statement": "No application or migration code MAY alter, update, or delete audit records.",
+          "applies_to": ["db", "code"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST NOT",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of rules array for Audit section."
+    },
+    {
+      "id": "db.rel",
+      "comment_2b3c4d": "Foreign key, referential integrity, polymorphism.",
+      "title": "Relations & Integrity",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "db.rel.fk",
+          "comment_4d5e6f": "All FKs explicit and constrained.",
+          "statement": "All cross-table references MUST use explicit FOREIGN KEY constraints, each with ON DELETE/ON UPDATE policy and supporting INDEX.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["db-policy", "ci", "review"]
+        },
+        {
+          "id": "db.rel.polymorphic",
+          "comment_4d5e6f": "Polymorphic link validation.",
+          "statement": "Polymorphic link tables MUST enforce validity of each (type, id) pair via trigger, test, or application logic.",
+          "applies_to": ["db", "code", "test"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["codebase_registry_template.json"],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["test", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of rules for relations section."
+    },
+    {
+      "id": "db.constraint",
+      "comment_2b3c4d": "Unique constraints, enums, JSON, versioning.",
+      "title": "Constraints & Field Types",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "db.constraint.unique",
+          "comment_4d5e6f": "DEFERRABLE unique constraints.",
+          "statement": "Unique constraints MUST be DEFERRABLE INITIALLY IMMEDIATE unless documented otherwise.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review", "ci"]
+        },
+        {
+          "id": "db.constraint.enum",
+          "comment_4d5e6f": "Enums for value fields.",
+          "statement": "All status/type/category fields MUST use explicit ENUM types.",
+          "applies_to": ["db", "ui", "code"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["ui_blocks_template.json"],
+          "comment_8b9c0d": "",
+          "notes": "Enums must be documented and UI-synced.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci", "review"]
+        },
+        {
+          "id": "db.constraint.enum_sync",
+          "comment_4d5e70": "ENUM value synchronization policy.",
+          "statement": "All ENUM value lists used in the database schema MUST be declared and maintained in a central canonical location (e.g., schema.sql or shared enums JSON). All dependent code and UI blocks MUST reference this location and be updated to match any changes. CI MUST validate that UI and code ENUM value lists are in sync with the database.",
+          "applies_to": ["db", "ui", "code"],
+          "requirement_level": "MUST",
+          "references": ["schema.sql", "ui_blocks_template.json"],
+          "notes": "Avoids UI drift and hardcoded mismatches. Exception must be documented.",
+          "enforced_by": ["ci", "review"]
+        },
+        {
+          "id": "db.constraint.jsonb",
+          "comment_4d5e6f": "Validation for JSONB business data.",
+          "statement": "Any JSONB field with business data MUST be validated by CHECK, trigger, or tested application logic.",
+          "applies_to": ["db", "code", "test"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["codebase_registry_template.json"],
+          "comment_8b9c0d": "",
+          "notes": "Relaxed validation for log/debug fields is permitted with documentation.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["test", "review"]
+        },
+        {
+          "id": "db.constraint.timestamps",
+          "comment_4d5e6f": "Required timestamp and version columns.",
+          "statement": "All mutable/business tables MUST include created_at, updated_at, and version columns.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Static lookup/reference tables are exempt. Exceptions must be documented.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of constraints section."
+    },
+    {
+      "id": "db.index",
+      "comment_2b3c4d": "Indexing for FKs, frequent queries.",
+      "title": "Indexing",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "db.index.fk_and_query",
+          "comment_4d5e6f": "Indexes for FKs and query columns.",
+          "statement": "All FOREIGN KEY columns and columns used for frequent filter, sort, or join operations MUST be indexed.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of indexing section."
+    },
+    {
+      "id": "db.migration",
+      "comment_2b3c4d": "Schema change and migration policy.",
+      "title": "Schema Change Policy",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "db.migration.manual",
+          "comment_4d5e6f": "Manual schema changes only during MVP.",
+          "statement": "All schema changes MUST be performed via hand-written SQL executed on the development database and exported as schema.sql.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "No tool-managed migrations during MVP. schema.sql is canonical.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review"]
+        },
+        {
+          "id": "db.migration.backup",
+          "comment_4d5e6f": "Backup before destructive operations.",
+          "statement": "Manual destructive database operations MUST be preceded by a verified backup.",
+          "applies_to": ["db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review"]
+        }
+      ],
+      "comment_1e2f3a": "End of migration section."
+    },
+    {
+      "id": "code.audit",
+      "comment_2b3c4d": "Audit coverage at code and test level.",
+      "title": "Audit Coverage",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "code.audit.emit",
+          "comment_4d5e6f": "Mutation triggers audit event.",
+          "statement": "Every mutation of a business table (INSERT, UPDATE, DELETE) MUST emit an audit record.",
+          "applies_to": ["code", "db", "test"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["test", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of code audit section."
+    },
+    {
+      "id": "test.validation",
+      "comment_2b3c4d": "Validation and test requirements.",
+      "title": "Validation & Testing",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "test.validation.automated",
+          "comment_4d5e6f": "Automated tests for constraints and triggers.",
+          "statement": "All constraints, triggers, and RLS policies MUST have automated tests; migrations MUST be validated before deployment.",
+          "applies_to": ["test", "db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of test validation section."
+    },
+    {
+      "id": "meta.exception",
+      "comment_2b3c4d": "Exception handling and documentation.",
+      "title": "Exceptions",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "meta.exception.doc",
+          "comment_4d5e6f": "All deviations must be documented.",
+          "statement": "Any intentional deviation from these conventions MUST be documented with rationale, risks, and approval.",
+          "applies_to": ["all"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["exceptions"],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review"]
+        },
+        {
+          "id": "meta.exception.workflow",
+          "comment_new3": "Exceptions workflow.",
+          "statement": "Any new or amended exception MUST be created and linked to a corresponding code review or pull request (PR/issue) in the project tracking system before merging. The exception record MUST include the PR/issue reference and approval metadata.",
+          "applies_to": ["all"],
+          "requirement_level": "MUST",
+          "references": ["exceptions"],
+          "notes": "Ensures that all exceptions are traceable to formal review and approval.",
+          "enforced_by": ["review", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of exceptions section."
+     },
+    {
+      "id": "validation.patterns",
+      "comment_f1e2d3": "Enforce referencing of canonical regex patterns.",
+      "title": "Validation Patterns",
+      "rules": [
+        {
+          "id": "validation.patterns.reference",
+          "comment_a4b5c6": "Reference canonical patterns",
+          "statement": "All pattern-based validations MUST reference a `pattern_id` from the canonical patterns file, not include inline regex.",
+          "applies_to": ["db", "ui", "code", "test"],
+          "requirement_level": "MUST",
+          "pattern_id": "<pattern_key>",
+          "pattern_ref": "global_validation_patterns.yaml.md",
+          "references": ["validation_patterns_file"],
+          "notes": "Tests and application code MUST fetch the regex by pattern_id.",
+          "enforced_by": ["ci", "review"]
+        }
+      ],
+      "comment_2e3f4g": "End of validation.patterns section."
+    },
+    {
+      "id": "ui.cross_module",
+      "comment_2b3c4d": "UI cross-module actions and dependencies.",
+      "title": "UI Block Cross-Module Dependencies",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "ui.cross_module.declare",
+          "comment_4d5e6f": "Declare module dependencies and function calls for cross-module UI actions.",
+          "statement": "All UI actions invoking business logic in another module MUST declare module_dependency and function_call fields and be routed through the owning module’s API.",
+          "applies_to": ["ui", "code"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["ui_blocks_template.json"],
+          "comment_8b9c0d": "",
+          "notes": "CI must validate all such specifications.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of UI cross-module section."
+    },
+    {
+      "id": "naming",
+      "comment_2b3c4d": "Naming conventions for all artifacts.",
+      "title": "Naming Conventions",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "naming.snake_case",
+          "comment_4d5e6f": "snake_case for db/file/var/function.",
+          "statement": "All table, column, index, constraint, file, module, variable, and function names MUST use snake_case.",
+          "applies_to": ["db", "code", "ui"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Deviations must be documented in exceptions.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review", "ci"]
+        },
+        {
+          "id": "naming.pascal_case",
+          "comment_4d5e6f": "PascalCase for Python class and DB models.",
+          "statement": "Class names (including DB model classes) MUST use PascalCase directly mapped from the table name.",
+          "applies_to": ["code"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review"]
+        }
+      ],
+      "comment_1e2f3a": "End of naming conventions section."
+    },
+    {
+      "id": "registry",
+      "comment_2b3c4d": "Module registry and source of truth.",
+      "title": "Module Registry",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "registry.canonical",
+          "comment_4d5e6f": "codebase_registry.json as canonical source.",
+          "statement": "codebase_registry.json MUST be the single authoritative registry for modules, interfaces, tables, UI pages, and dependencies.",
+          "applies_to": ["code", "spec"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["codebase_registry.json"],
+          "comment_8b9c0d": "",
+          "notes": "",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci", "review"]
+        },
+        {
+          "id": "registry.ui_block",
+          "comment_new1": "Require explicit ui_block field in each module definition.",
+          "statement": "Each module definition in codebase_registry.json MUST include a ui_block field with a relative path to the owning module's UI block definition as per codebase_registry_template.json.",
+          "applies_to": ["code", "spec"],
+          "requirement_level": "MUST",
+          "references": ["codebase_registry_template.json", "ui_blocks_template.json"],
+          "notes": "Ensures registry and UI block specs stay in sync.",
+          "enforced_by": ["ci", "review"]
+        }
+      ],
+      "comment_1e2f3a": "End of registry section."
+    },
+    {
+      "id": "ui.state_hooks",
+      "comment_2b3c4d": "Persistent UI state hooks.",
+      "title": "UI State Hooks",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "ui.state_hooks.implement",
+          "comment_4d5e6f": "State persistence hooks.",
+          "statement": "Every UI block or pane with persistent state MUST implement get_ui_state and set_ui_state hooks as defined in ui_blocks_template.json.",
+          "applies_to": ["ui", "code", "test"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": ["ui_blocks_template.json"],
+          "comment_8b9c0d": "",
+          "notes": "Automated tests or CI must verify presence. Omission must be justified in exceptions.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci", "test"]
+        },
+        {
+          "id": "ui.state_hooks.reference",
+          "comment_new2": "UI block definitions MUST reference their compliance with ui_blocks_template.json.",
+          "statement": "Each UI block JSON specification MUST include a $template_reference field explicitly referencing ui_blocks_template.json as the authoritative template for state hook structure.",
+          "applies_to": ["ui", "code", "test"],
+          "requirement_level": "MUST",
+          "references": ["ui_blocks_template.json"],
+          "notes": "This provides unambiguous linkage for automated checks.",
+          "enforced_by": ["ci", "review"]
+        }
+      ],
+      "comment_1e2f3a": "End of UI state hooks section."
+    },
+    {
+      "id": "test.isolation",
+      "comment_2b3c4d": "Test isolation, rollback, idempotency.",
+      "title": "Test Isolation & Database Rollback",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "test.isolation.txn",
+          "comment_4d5e6f": "Transactional isolation for tests.",
+          "statement": "All tests interacting with the database MUST run inside a transaction that is rolled back after the test completes.",
+          "applies_to": ["test", "db"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Persistent/integration tests must be marked and isolated.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["ci", "test"]
+        }
+      ],
+      "comment_1e2f3a": "End of test isolation section."
+    },
+    {
+      "id": "db.versioning",
+      "comment_2b3c4d": "Version field requirements.",
+      "title": "Incremental Version Bumping",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "db.versioning.bump",
+          "comment_4d5e6f": "version must increment on update.",
+          "statement": "The version column on mutable tables MUST increment by 1 on every UPDATE.",
+          "applies_to": ["db", "code", "test"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Enforce via trigger or app logic. Exceptions must be documented.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["test", "review", "ci"]
+        }
+      ],
+      "comment_1e2f3a": "End of versioning section."
+    },
+    {
+      "id": "ops.secrets",
+      "comment_2b3c4d": "Secrets and configuration management.",
+      "title": "Secrets & Configuration",
+      "comment_3c4d5e": "",
+      "rules": [
+        {
+          "id": "ops.secrets.exclude",
+          "comment_4d5e6f": "Secrets must not be committed.",
+          "statement": "All environment config files with secrets MUST be excluded from version control.",
+          "applies_to": ["ops", "code"],
+          "comment_6f7a8b": "",
+          "requirement_level": "MUST",
+          "references": [],
+          "comment_8b9c0d": "",
+          "notes": "Production secrets/credentials must not be stored or shared in plaintext.",
+          "comment_9c0d1e": "",
+          "enforced_by": ["review"]
+        }
+      ],
+      "comment_1e2f3a": "End of ops.secrets section."
+    }
+  ],
+  "comment_2e3f4a": "End of sections array.",
+  "exceptions": [
+    {
+      "rule_id": "db.constraint.timestamps",
+      "comment_2f3a4b": "Timestamps/versions omitted for static reference table.",
+      "reason": "Static table; does not mutate.",
+      "comment_3a4b5c": "Reference/lookup tables don't need timestamps.",
+      "risks": "None for read-only tables.",
+      "comment_4b5c6d": "",
+      "approved_by": "lead-dev",
+      "comment_5c6d7e": "",
+      "date": "2025-08-01",
+      "comment_6d7e8f": ""
+    }
+  ],
+  "comment_7e8f9a": "End of conventions specification."
+}
