@@ -1,60 +1,122 @@
-# Theme Manager Pseudocode
+# [MODULE_SLUG] - Codegen-Ready Pseudocode Template
+<!--
+Purpose: A generic, reusable pseudocode spec that is strict enough for LLM codegen and CI enforcement.
+Usage: Copy this file, replace bracketed placeholders, and keep comments that help future readers or tools.
+Style: Deterministic, implementation-neutral, minimal ambiguity. Prefer lists and JSON blocks over prose.
+-->
 
-## ThemeManager Class
+<META json>
+{
+  "slug": "utils.theme",
+  "target_file": "src/utils/theme.py",
+  "language": "python",
+  "runtime": {
+    "python": "3.11"
+  },
+  "index_base": 0,
+  "newline": "LF",
+  "dependencies": [
+    "core.contracts"
+  ],
+  "acceptance": {
+    "lint": [
+      "ruff check .",
+      "ruff format --check ."
+    ],
+    "tests": [
+      "pytest -q"
+    ]
+  }
+}
+</META>
 
-### Properties
-- app: QApplication reference
-- current_theme: 'light' or 'dark'
-- timer: QTimer for theme monitoring
+## PURPOSE
+- Manage theme preference 'light'|'dark'|'auto' and provide palette to UI consumers.
 
-### Methods
+## SCOPE
+- In-scope:
+  - Store current theme
+  - Expose palette dict
+  - Signal listeners via callback hooks
+- Out-of-scope:
+  - OS polling inside highlighters or editors
 
-#### __init__(app)
-1. STORE app reference
-2. INITIALIZE timer (30s interval)
-3. CONNECT timer timeout to check_theme
-4. START timer
-5. CALL apply_theme
+## IMPORTS - ALLOWED ONLY
+<!-- Keep this list tight to avoid unreviewed dependencies creeping in. -->
+- - from typing import Literal, Dict
 
-#### detect_system_theme()
-1. IF Windows:
-   - READ registry key:
-     - HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize
-     - Value: AppsUseLightTheme
-   - RETURN 'dark' if value == 0, 'light' otherwise
-2. ELSE:
-   - CALCULATE palette brightness
-   - RETURN 'dark' if brightness < 0.5
+## CONSTANTS
+- DEFAULT_THEME = 'auto'
 
-#### apply_theme()
-1. new_theme = detect_system_theme()
-2. IF new_theme == current_theme:
-   - RETURN
-3. SAVE scroll positions
-4. IF dark theme:
-   - SET Fusion style
-   - APPLY dark palette:
-     - Window: dark gray
-     - Text: white
-     - Base: darker gray
-     - Highlight: blue
-5. ELSE:
-   - RESET to system palette
-6. RESTORE scroll positions
-7. EMIT theme_changed signal
+## TYPES - USE ONLY SHARED TYPES
+<!-- Reference canonical shared types. Do not redefine here. -->
+- Uses: FilePatch, Hunk, HunkLine, ApplyResult, ParseError, ApplyError  // from core.contracts
 
-#### create_dark_palette()
-1. CREATE QPalette
-2. SET colors:
-   - Window: QColor(53, 53, 53)
-   - WindowText: white
-   - Base: QColor(35, 35, 35)
-   - Text: white
-   - Button: QColor(53, 53, 53)
-   - Highlight: QColor(42, 130, 218)
-3. RETURN palette
+## INTERFACES
+- def current() -> str
+  - pre: state initialized
+  - post: returns 'light'|'dark'|'auto'
+  - errors: none
+- def set(name: str) -> None
+  - pre: name in {'light','dark','auto'}
+  - post: updates theme and emits callback
+  - errors: ValidationError on bad name
+- def palette() -> dict
+  - pre: current theme set
+  - post: returns stable color mapping
+  - errors: none
 
-#### check_theme()
-1. new_theme = detect_system_theme()
-2. IF new_theme != current_theme:
-   - CALL apply_theme()
+
+## STATE
+- subs: list[callable] - registered listeners
+
+## THREADING
+- ui_thread_only: false
+- worker_policy: none
+- handoff: callback
+
+## I/O
+- inputs: ["theme name"]
+- outputs: ["palette dict", "callbacks"]
+- encoding: utf-8
+- atomic_write: false  // temp file + replace
+
+## LOGGING
+- logger: patchy
+- on_start: INFO "start utils.theme"
+- on_warn: WARNING "condition"
+- on_error: ERROR "condition raises ErrorType"
+
+## ALGORITHM
+1) If name invalid raise ValidationError
+2) Set internal theme
+3) Notify subscribers
+4) Return palette on request
+
+### EDGE CASES
+- - Unknown theme → ValidationError
+
+## ERRORS
+- - ValidationError on bad theme name
+
+## COMPLEXITY
+- time: O(1)
+- memory: O(1)
+- notes: none
+
+## PERFORMANCE
+- max input size: n/a
+- max iterations: n/a
+- timeout: none
+- instrumentation:
+- count theme changes
+
+## TESTS - ACCEPTANCE HOOKS
+- assert palette keys include background, foreground, added, removed
+
+## EXTENSIBILITY
+- - New palettes can be added by extending mapping
+
+## NON-FUNCTIONAL
+- security: no external IO
+- i18n: UTF-8

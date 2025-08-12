@@ -1,48 +1,124 @@
-# Syntax Highlighters Pseudocode
+# [MODULE_SLUG] - Codegen-Ready Pseudocode Template
+<!--
+Purpose: A generic, reusable pseudocode spec that is strict enough for LLM codegen and CI enforcement.
+Usage: Copy this file, replace bracketed placeholders, and keep comments that help future readers or tools.
+Style: Deterministic, implementation-neutral, minimal ambiguity. Prefer lists and JSON blocks over prose.
+-->
 
-## DiffHighlighter (QSyntaxHighlighter)
-1. INITIALIZE with color palette
-2. DEFINE formats:
-   - Added lines: green foreground
-   - Removed lines: red foreground
-   - Headers: blue foreground
-3. OVERRIDE highlightBlock:
-   - IF line starts with '@@', '+++', '---', or '***':
-     - APPLY header format
-   - ELIF line starts with '+':
-     - APPLY added format
-   - ELIF line starts with '-':
-     - APPLY removed format
+<META json>
+{
+  "slug": "ui.highlighters",
+  "target_file": "src/ui/highlighters.py",
+  "language": "python",
+  "runtime": {
+    "python": "3.11"
+  },
+  "index_base": 0,
+  "newline": "LF",
+  "dependencies": [
+    "core.contracts"
+  ],
+  "acceptance": {
+    "lint": [
+      "ruff check .",
+      "ruff format --check ."
+    ],
+    "tests": [
+      "pytest -q"
+    ]
+  }
+}
+</META>
 
-## PatchHighlighter (QSyntaxHighlighter)
-1. INITIALIZE with color palette
-2. DEFINE format:
-   - Added lines: green background
-3. METHOD set_added_lines(indices):
-   - STORE indices
-   - REHIGHLIGHT
-4. OVERRIDE highlightBlock:
-   - GET current line number
-   - IF line in added indices:
-     - APPLY added format
+## PURPOSE
+- Render visual styles for diff and code regions based on Theme palette; no OS detection here.
 
-## RemovedHighlighter (QSyntaxHighlighter)
-1. INITIALIZE with color palette
-2. DEFINE format:
-   - Removed lines: red background (transparent)
-3. METHOD set_removed_lines(indices):
-   - STORE indices
-   - REHIGHLIGHT
-4. OVERRIDE highlightBlock:
-   - GET current line number
-   - IF line in removed indices:
-     - APPLY removed format
+## SCOPE
+- In-scope:
+  - Apply styles for added, removed, headers, line numbers
+  - Batch updates to avoid jank
+- Out-of-scope:
+  - Theme detection
+  - File I/O
 
-## Color Palette Detection
-1. DETECT if dark mode:
-   - Windows: Check registry
-   - Other: Check palette brightness
-2. IF dark mode:
-   - SET dark color scheme
-3. ELSE:
-   - SET light color scheme
+## IMPORTS - ALLOWED ONLY
+<!-- Keep this list tight to avoid unreviewed dependencies creeping in. -->
+- - from typing import List
+- - from core.contracts import ValidationError
+
+## CONSTANTS
+- BATCH_SIZE = 1000
+- DELAY_MS = 0
+
+## TYPES - USE ONLY SHARED TYPES
+<!-- Reference canonical shared types. Do not redefine here. -->
+- Uses: FilePatch, Hunk, HunkLine, ApplyResult, ParseError, ApplyError  // from core.contracts
+
+## INTERFACES
+- def set_palette(palette: dict) -> None
+  - pre: required keys present: {'background','foreground','added','removed','header','lineNumber','selection'}
+  - post: palette stored
+  - errors: ValidationError on missing keys
+- def highlight_diff(lines: list[str]) -> None
+  - pre: lines is list[str]
+  - post: styles applied
+  - errors: none
+- def highlight_patch(added: list[int], removed: list[int]) -> None
+  - pre: indices >= 0
+  - post: styles applied
+  - errors: ValidationError on negatives
+
+
+## STATE
+- palette: dict
+
+## THREADING
+- ui_thread_only: true
+- worker_policy: none
+- handoff: queued signal
+
+## I/O
+- inputs: ["palette dict", "text lines", "indices"]
+- outputs: ["styled regions"]
+- encoding: utf-8
+- atomic_write: false  // temp file + replace
+
+## LOGGING
+- logger: patchy
+- on_start: INFO "start ui.highlighters"
+- on_warn: WARNING "condition"
+- on_error: ERROR "condition raises ErrorType"
+
+## ALGORITHM
+1) Validate palette keys exist
+2) Apply styles in batches of BATCH_SIZE
+3) Optionally delay between batches via DELAY_MS
+
+### EDGE CASES
+- - Empty lines → no-op
+- - Missing palette key → ValidationError
+
+## ERRORS
+- - ValidationError on bad inputs
+
+## COMPLEXITY
+- time: O(n)
+- memory: O(1)
+- notes: none
+
+## PERFORMANCE
+- max input size: 200k lines
+- max iterations: n
+- timeout: none
+- instrumentation:
+- count batches
+
+## TESTS - ACCEPTANCE HOOKS
+- assert indices are 0-based and sorted
+
+## EXTENSIBILITY
+- - New token categories can be added by extending key map
+
+## NON-FUNCTIONAL
+- security: none
+- i18n: UTF-8

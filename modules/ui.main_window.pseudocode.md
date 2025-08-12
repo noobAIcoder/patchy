@@ -1,115 +1,148 @@
-# Main Window Pseudocode
+# [MODULE_SLUG] - Codegen-Ready Pseudocode Template
+<!--
+Purpose: A generic, reusable pseudocode spec that is strict enough for LLM codegen and CI enforcement.
+Usage: Copy this file, replace bracketed placeholders, and keep comments that help future readers or tools.
+Style: Deterministic, implementation-neutral, minimal ambiguity. Prefer lists and JSON blocks over prose.
+-->
 
-## Initialization
-1. CREATE QApplication instance
-2. INITIALIZE ThemeManager
-3. INITIALIZE StateManager
-4. CREATE MainWindow instance
-5. SETUP UI:
-   - CREATE central widget
-   - CREATE toolbar
-   - CREATE content area (3-panel splitter)
-   - CONNECT all signals
-6. RESTORE saved state
-7. SHOW window
-8. START event loop
+<META json>
+{
+  "slug": "ui.main_window",
+  "target_file": "src/ui/main_window.py",
+  "language": "python",
+  "runtime": {
+    "python": "3.11"
+  },
+  "index_base": 0,
+  "newline": "LF",
+  "dependencies": [
+    "core.contracts"
+  ],
+  "acceptance": {
+    "lint": [
+      "ruff check .",
+      "ruff format --check ."
+    ],
+    "tests": [
+      "pytest -q"
+    ]
+  }
+}
+</META>
 
-## Toolbar Setup
-1. CREATE horizontal layout
-2. ADD buttons:
-   - Open File button
-   - Open Folder button
-   - Open Diff button
-   - Apply Patch button
-   - Save As button
-3. ADD checkboxes:
-   - Create backups
-   - Live preview
-4. CONNECT button clicks to handlers
+## PURPOSE
+- Assemble main UI, wire signals, orchestrate file open, diff parse/apply, navigation, and state/theme integration.
 
-## Content Area Setup
-1. CREATE horizontal splitter
-2. CREATE left panel:
-   - QLabel "Files"
-   - QListWidget for file list
-3. CREATE middle panel:
-   - QLabel "Original"
-   - CodeEditor widget
-4. CREATE right panel:
-   - QTabWidget
-   - ADD tabs:
-     - Diff editor
-     - Preview editor
-     - Navigation widget
-5. SET splitter sizes [200, 600, 800]
+## SCOPE
+- In-scope:
+  - Toolbar actions
+  - Split panes
+  - Open file/folder/diff
+  - Apply patch
+  - Persist and restore state
+- Out-of-scope:
+  - Implement diff parsing or applying logic inside
+  - Network access
 
-## Event Handlers
+## IMPORTS - ALLOWED ONLY
+<!-- Keep this list tight to avoid unreviewed dependencies creeping in. -->
+- - from core.contracts import PatchyError
+- - from typing import Optional
+- from core.diff_parser import parse
+- from core.diff_applier import apply
+- from utils.state import load, save
+- from utils.theme import current, palette
+- from ui.code_editor import set_content, get_content, scroll_to_line, highlight_lines
+- from ui.highlighters import set_palette, highlight_diff, highlight_patch
+- from ui.navigation import analyze_changes, next_change, prev_change
 
-### on_open_file
-1. OPEN file dialog
-2. IF file selected:
-   - SET current_file
-   - SET root_folder = None
-   - LOAD file content into original editor
-   - CLEAR file list
-   - CLEAR preview
+## CONSTANTS
+- SPLITTER_DEFAULTS = [300, 400, 300]
 
-### on_open_folder
-1. OPEN folder dialog
-2. IF folder selected:
-   - SET root_folder
-   - SET current_file = None
-   - CLEAR editors
-   - SCAN folder for files
+## TYPES - USE ONLY SHARED TYPES
+<!-- Reference canonical shared types. Do not redefine here. -->
+- Uses: FilePatch, Hunk, HunkLine, ApplyResult, ParseError, ApplyError  // from core.contracts
 
-### on_open_diff
-1. OPEN file dialog for diff
-2. IF file selected:
-   - LOAD diff content into diff editor
-   - PARSE diff using DiffParser
-   - UPDATE file list
-   - SELECT first file
+## INTERFACES
+- def init_ui() -> None
+  - pre: called once
+  - post: widgets constructed and connected
+  - errors: none
+- def load_state() -> None
+  - pre: state accessible
+  - post: restore splitter sizes and theme
+  - errors: none
+- def save_state() -> None
+  - pre: on close
+  - post: persist state
+  - errors: none
+- def on_open_file(path: str) -> None
+  - pre: path exists
+  - post: file loaded and editors updated
+  - errors: IOErrorCompat on fail
+- def on_apply_diff() -> None
+  - pre: diff present
+  - post: apply result updates preview and nav
+  - errors: ApplyError on failure
 
-### on_diff_changed
-1. GET diff content
-2. IF empty:
-   - CLEAR file list
-   - RETURN
-3. TRY:
-   - PARSE diff using DiffParser
-   - UPDATE file list
-   - IF files exist:
-     - SELECT first file
-4. CATCH ParseError:
-   - SHOW warning dialog
 
-### on_file_selected
-1. GET selected patch from list item
-2. IF no patch:
-   - RETURN
-3. LOAD original content:
-   - TRY relative to root folder
-   - TRY absolute path
-4. IF loaded:
-   - SET original editor content
-   - APPLY patch using DiffApplier
-   - UPDATE preview editor
-   - UPDATE navigation
+## STATE
+- widgets: dict - references to editors and panels
 
-## State Management
+## THREADING
+- ui_thread_only: true
+- worker_policy: threadpool
+- handoff: queued signal
 
-### save_state
-1. CREATE state dict:
-   - window_size
-   - window_position
-   - root_folder
-   - current_file
-   - splitter_sizes
-2. CALL StateManager.save(state)
+## I/O
+- inputs: ["user actions", "paths"]
+- outputs: ["signals", "editor content updates"]
+- encoding: utf-8
+- atomic_write: false  // temp file + replace
 
-### restore_state
-1. CALL StateManager.load()
-2. IF state exists:
-   - RESTORE window size
-   - RESTORE window position
-   - RESTORE splitter sizes
+## LOGGING
+- logger: patchy
+- on_start: INFO "start ui.main_window"
+- on_warn: WARNING "condition"
+- on_error: ERROR "condition raises ErrorType"
+
+## ALGORITHM
+1) Construct widgets and connect signals
+2) Wire state load and theme hookup
+3) Handle file open and update editors
+4) Invoke parser and applier in worker then post results to UI
+5) Persist state on exit
+
+### EDGE CASES
+- - Missing file → show error
+- - Parse error → show message and keep state stable
+- - Apply error → revert preview
+
+## ERRORS
+- - IOErrorCompat, ParseError, ApplyError
+
+## COMPLEXITY
+- time: O(1) per event
+- memory: O(1) steady aside from loaded files
+- notes: none
+
+## PERFORMANCE
+- max input size: files up to 50MB
+- max iterations: n/a
+- timeout: none
+- instrumentation:
+- count UI events
+- latency per apply
+
+## TESTS - ACCEPTANCE HOOKS
+- assert no ERROR logs during normal operations
+- assert call order: open -> parse -> apply -> navigation -> editors updated
+- assert no ERROR logs on success path
+
+## EXTENSIBILITY
+- - New panes can be added via widget registry
+
+## NON-FUNCTIONAL
+- security: path validation
+- i18n: UTF-8 only
+- compliance: no telemetry

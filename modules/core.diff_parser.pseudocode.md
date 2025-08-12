@@ -1,93 +1,134 @@
-# Diff Parser Pseudocode
+# [MODULE_SLUG] - Codegen-Ready Pseudocode Template
+<!--
+Purpose: A generic, reusable pseudocode spec that is strict enough for LLM codegen and CI enforcement.
+Usage: Copy this file, replace bracketed placeholders, and keep comments that help future readers or tools.
+Style: Deterministic, implementation-neutral, minimal ambiguity. Prefer lists and JSON blocks over prose.
+-->
 
-## Main Function: parse_diff_content
-1. INPUT: diff_content (string)
-2. IF diff_content is empty or only whitespace:
-   RETURN empty list
-3. SPLIT diff_content into lines
-4. INITIALIZE:
-   - patches = empty list
-   - current_patch = None
-   - index = 0
-5. WHILE index < length(lines):
-   - line = lines[index]
-   - IF line should be skipped (matches skip prefixes):
-     - index += 1
-     - CONTINUE
-   - IF line starts file header:
-     - patch = parse_file_header(lines, index)
-     - IF patch is valid:
-       - APPEND patch to patches
-       - SET current_patch = patch
-       - index += 2  # Skip header pair
-       - CONTINUE
-   - IF line starts hunk header ('@@'):
-     - IF current_patch is None:
-       - RAISE ParseError("Hunk before file header")
-     - hunk, consumed = parse_hunk(lines, index)
-     - APPEND hunk to current_patch.hunks
-     - index += consumed
-     - CONTINUE
-   - index += 1
-6. RETURN patches
+<META json>
+{
+  "slug": "core.diff_parser",
+  "target_file": "src/core/diff_parser.py",
+  "language": "python",
+  "runtime": {
+    "python": "3.11"
+  },
+  "index_base": 0,
+  "newline": "LF",
+  "dependencies": [
+    "core.contracts"
+  ],
+  "acceptance": {
+    "lint": [
+      "ruff check .",
+      "ruff format --check ."
+    ],
+    "tests": [
+      "pytest -q"
+    ]
+  }
+}
+</META>
 
-## Function: parse_file_header
-1. INPUT: lines, start_index
-2. IF start_index + 1 >= length(lines):
-   RETURN None
-3. DETECT header style:
-   - IF line matches unified pattern ('---'):
-     - old_path = extract path after '---'
-     - EXPECT next line starts with '+++'
-     - new_path = extract path after '+++'
-   - ELIF line matches context pattern ('***'):
-     - old_path = extract path after '***'
-     - EXPECT next line starts with '---'
-     - new_path = extract path after '---'
-   - ELSE:
-     RETURN None
-4. CLEAN both paths:
-   - Remove timestamp after tab
-   - Remove 'a/' or 'b/' prefixes
-   - Strip whitespace
-5. RETURN FilePatch(old_path, new_path, [])
+## PURPOSE
+- Parse unified or context diff text into structured FilePatch and Hunk objects.
 
-## Function: parse_hunk
-1. INPUT: lines, start_index
-2. header_line = lines[start_index]
-3. PARSE header using regex:
-   - Extract old_start (default 1)
-   - Extract old_len (default 0)
-   - Extract new_start (default 1)
-   - Extract new_len (default 0)
-4. CREATE hunk object with parsed values
-5. index = start_index + 1
-6. WHILE index < length(lines):
-   - line = lines[index]
-   - IF line starts new section:
-     BREAK
-   - IF line is empty:
-     - ADD HunkLine(' ', '')
-   - ELIF first character is in [' ', '+', '-']:
-     - ADD HunkLine(kind, line[1:])
-   - ELIF line is '\\ No newline...':
-     - SKIP
-   - ELSE:
-     - RAISE ParseError("Invalid hunk line")
-   - index += 1
-7. RETURN (hunk, index - start_index)
+## SCOPE
+- In-scope:
+  - Parse headers, file sections, and hunks
+  - Skip noise lines using SKIP_PREFIXES
+  - Normalize EOL to LF
+- Out-of-scope:
+  - Applying patches
+  - Filesystem writes
 
-## Function: should_skip_line
-1. INPUT: line
-2. FOR each skip_prefix in skip_prefixes:
-   - IF line starts with skip_prefix:
-     RETURN True
-3. RETURN False
+## IMPORTS - ALLOWED ONLY
+<!-- Keep this list tight to avoid unreviewed dependencies creeping in. -->
+- - from core.contracts import FilePatch, Hunk, HunkLine, ParseError, UNIFIED_HUNK_HEADER_REGEX, CONTEXT_HUNK_HEADER_REGEX, SKIP_PREFIXES
+- - from typing import List, Tuple
+- - import re
 
-## Function: clean_path
-1. INPUT: path_string
-2. REMOVE everything after tab character
-3. IF path starts with 'a/' or 'b/':
-   - REMOVE first 2 characters
-4. STRIP whitespace
-5. RETURN cleaned path
+## CONSTANTS
+- UNIFIED_HUNK_HEADER_REGEX = "^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@.*$"
+- CONTEXT_HUNK_HEADER_REGEX = "^\*\*\* (\d+),(\d+) \*\*\*\*$"
+- SKIP_PREFIXES = ["diff --git ", "index ", "new file mode ", "deleted file mode ", "--- ", "+++ ", "*** ", "rename from ", "rename to ", "similarity index ", "Binary files "]
+- INDEX_BASE = 0
+
+## TYPES - USE ONLY SHARED TYPES
+<!-- Reference canonical shared types. Do not redefine here. -->
+- Uses: FilePatch, Hunk, HunkLine, ApplyResult, ParseError, ApplyError  // from core.contracts
+
+## INTERFACES
+- def parse(content: str) -> list[FilePatch]
+  - pre: content is str; not None; LF normalized
+  - post: returns list of FilePatch; stable order by appearance
+  - errors: ParseError on grammar violation
+- def validate(content: str) -> tuple[bool, list[tuple[int,str]]]
+  - pre: content is str
+  - post: returns validity and sorted error list
+  - errors: none
+- def split_lines(content: str) -> list[str]  - pre: content is str; post: LF-only lines; errors: none
+
+## STATE
+- line_no: int - current line index
+
+## THREADING
+- ui_thread_only: false
+- worker_policy: none
+- handoff: callback
+
+## I/O
+- inputs: ["diff content string"]
+- outputs: ["list[FilePatch]"]
+- encoding: utf-8
+- atomic_write: false  // temp file + replace
+
+## LOGGING
+- logger: patchy
+- on_start: INFO "start core.diff_parser"
+- on_warn: WARNING "condition"
+- on_error: ERROR "condition raises ErrorType"
+
+## ALGORITHM
+1) Split content into lines with LF
+2) Iterate, skipping SKIP_PREFIXES and non-hunk noise
+3) Detect file boundaries and create FilePatch entries
+4) Match hunk headers via UNIFIED_HUNK_HEADER_REGEX or CONTEXT_HUNK_HEADER_REGEX
+5) Accumulate HunkLine with kinds ' ', '+', '-'
+6) Validate counts against header spans
+7) Return FilePatch list
+
+### EDGE CASES
+- - Empty content → return []
+- - Malformed header → raise ParseError with line number
+- - Unknown line kind → raise ParseError
+
+## ERRORS
+- - ParseError when grammar is violated
+
+## COMPLEXITY
+- time: O(n)
+- memory: O(n)
+- notes: none
+
+## PERFORMANCE
+- max input size: 50MB
+- max iterations: n
+- timeout: none
+- instrumentation:
+- count lines processed
+- record header matches
+
+## TESTS - ACCEPTANCE HOOKS
+- assert lines count equals sum of hunks
+- assert only kinds in {' ', '+', '-'}
+- assert re.compile(UNIFIED_HUNK_HEADER_REGEX)
+- assert all(k in {' ', '+', '-'} for fp in parse(sample) for h in fp.hunks for k in [ln.kind for ln in h.lines])
+
+## EXTENSIBILITY
+- - Add context-diff support without changing parse signature
+
+## NON-FUNCTIONAL
+- security: no file paths are executed
+- i18n: UTF-8 only
+- compliance: no telemetry
