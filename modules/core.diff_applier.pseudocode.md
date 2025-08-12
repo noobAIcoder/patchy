@@ -1,4 +1,4 @@
-# [MODULE_SLUG] - Codegen-Ready Pseudocode Template
+# core.diff_applier - Codegen-Ready Pseudocode Template
 <!--
 Purpose: A generic, reusable pseudocode spec that is strict enough for LLM codegen and CI enforcement.
 Usage: Copy this file, replace bracketed placeholders, and keep comments that help future readers or tools.
